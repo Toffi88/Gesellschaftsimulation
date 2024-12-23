@@ -1,0 +1,197 @@
+import pygame
+import random
+
+# Einstellungen
+SCREEN_WIDTH, SCREEN_HEIGHT = 1200, 900  # Fenstergröße (erhöht für Statusleiste)
+FPS = 30  # Frames pro Sekunde
+NUM_PERSONS = 50  # Anzahl der Personen
+NUM_FOOD = 500  # Anfangsanzahl der Nahrungseinheiten
+FOOD_ENERGY = 60  # Energie, die durch Essen wiederhergestellt wird
+FOOD_RESPAWN_RATE = 0.2  # Feste Anzahl der Nahrungseinheiten pro Bereich pro Runde
+ROUND_WEATHER_UPDATE = 500  # Anzahl der Runden, bis das Wetter aktualisiert wird
+STATUS_BAR_HEIGHT = 100  # Höhe der Statusleiste
+CELL_SIZE = 4  # Größe von Nahrung und Personen in Pixeln
+
+# Spielfeld-Größe in Pixeln
+GRID_WIDTH = SCREEN_WIDTH  # Breite des Spielfelds in Pixeln
+GRID_HEIGHT = SCREEN_HEIGHT - STATUS_BAR_HEIGHT  # Höhe des Spielfelds in Pixeln (ohne Statusleiste)
+
+# Bereichsdefinition
+NUM_AREAS_X = 5  # Anzahl der Bereiche horizontal
+NUM_AREAS_Y = 2  # Anzahl der Bereiche vertikal
+AREA_WIDTH = GRID_WIDTH // NUM_AREAS_X  # Breite eines Bereichs in Pixeln
+AREA_HEIGHT = GRID_HEIGHT // NUM_AREAS_Y  # Höhe eines Bereichs in Pixeln
+
+# Farben
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+RED = (255, 0, 0)
+
+# Wetterlagen
+weather_effects = [
+    {"type": "Kälte", "respawn_modifier": -0.5, "status_chance": 0.2},
+    {"type": "Dürre", "respawn_modifier": -1, "status_chance": 0.1},
+    {"type": "Sonne", "respawn_modifier": 0.3, "status_chance": 0.2},
+    {"type": "Normal", "respawn_modifier": 0.0, "status_chance": 0.5}
+]
+
+# Initialisiere pygame
+pygame.init()
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Gesellschaftssimulation")
+clock = pygame.time.Clock()
+font = pygame.font.Font(None, 24)
+
+# Initialisiere Wetter für Bereiche
+area_weather = [random.choice(weather_effects) for _ in range(NUM_AREAS_X * NUM_AREAS_Y)]
+
+# Klassen
+class Food:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.reserved_by = None  # Person, die die Nahrung reserviert hat
+
+class Person:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.energy = 100  # Startenergie
+        self.food = 0  # Nahrungsvorrat
+        self.color = BLUE  # Standardfarbe
+
+    def move(self, food_positions):
+        # Suche nach Nahrung im Wahrnehmungsradius
+        perception_radius = 400
+        closest_food = None
+        closest_distance = float('inf')
+
+        for food in food_positions:
+            if food.reserved_by is None or food.reserved_by == self:
+                distance = abs(self.x - food.x) + abs(self.y - food.y)
+                if distance < closest_distance and distance <= perception_radius:
+                    closest_distance = distance
+                    closest_food = food
+
+        # Reserviere Nahrung, falls gefunden
+        if closest_food and closest_food.reserved_by is None:
+            closest_food.reserved_by = self
+
+        # Bewege Richtung nächster Nahrung oder zufällig, wenn keine sichtbar
+        if closest_food:
+            if self.x < closest_food.x:
+                self.x += 1
+            elif self.x > closest_food.x:
+                self.x -= 1
+            if self.y < closest_food.y:
+                self.y += 1
+            elif self.y > closest_food.y:
+                self.y -= 1
+        else:
+            self.x += random.choice([-1, 0, 1])
+            self.y += random.choice([-1, 0, 1])
+
+        # Begrenze Bewegung auf das Spielfeld
+        self.x = max(0, min(SCREEN_WIDTH - 1, self.x))
+        self.y = max(STATUS_BAR_HEIGHT, min(SCREEN_HEIGHT - 1, self.y))
+
+    def consume_energy(self):
+        self.energy -= 1
+        if self.energy <= 0:
+            self.color = RED  # Markiere tote Personen
+
+    def eat_food(self):
+        if self.food > 0 and self.energy < 10:
+            self.food -= 1
+            self.energy += FOOD_ENERGY
+
+# Initialisierung
+persons = [Person(random.randint(0, GRID_WIDTH - 1), random.randint(STATUS_BAR_HEIGHT, GRID_HEIGHT - 1)) for _ in range(NUM_PERSONS)]
+food_positions = [Food(random.randint(0, SCREEN_WIDTH - 1), random.randint(STATUS_BAR_HEIGHT, SCREEN_HEIGHT - 1)) for _ in range(NUM_FOOD)]
+
+# Hauptschleife
+running = True
+current_round = 0
+while running:
+    screen.fill(BLACK)
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # Zeichne Statusleiste
+    pygame.draw.rect(screen, WHITE, (0, 0, SCREEN_WIDTH, STATUS_BAR_HEIGHT))
+    for y in range(NUM_AREAS_Y):
+        for x in range(NUM_AREAS_X):
+            area_index = y * NUM_AREAS_X + x
+            weather = area_weather[area_index]
+            text = font.render(f"Bereich {area_index + 1}: {weather['type']}", True, BLACK)
+            text_x = x * AREA_WIDTH + 5  # Position der Statusanzeige horizontal
+            text_y = y * 20 + 5  # Position der Statusanzeige vertikal
+            screen.blit(text, (text_x, text_y))
+
+    # Zeichne Bereiche
+    for i in range(1, NUM_AREAS_X):
+        pygame.draw.line(screen, WHITE, (i * AREA_WIDTH, STATUS_BAR_HEIGHT), (i * AREA_WIDTH, SCREEN_HEIGHT), 1)
+    for j in range(1, NUM_AREAS_Y):
+        pygame.draw.line(screen, WHITE, (0, STATUS_BAR_HEIGHT + j * AREA_HEIGHT), (SCREEN_WIDTH, STATUS_BAR_HEIGHT + j * AREA_HEIGHT), 1)
+
+    # Nummeriere Bereiche
+    for y in range(NUM_AREAS_Y):
+        for x in range(NUM_AREAS_X):
+            area_number = y * NUM_AREAS_X + x + 1
+            text = font.render(str(area_number), True, WHITE)
+            text_x = x * AREA_WIDTH + 5
+            text_y = STATUS_BAR_HEIGHT + y * AREA_HEIGHT + 5
+            screen.blit(text, (text_x, text_y))
+
+    # Zeichne Nahrung
+    for food in food_positions:
+        pygame.draw.rect(screen, GREEN, (food.x, food.y, CELL_SIZE, CELL_SIZE))
+
+    # Aktualisiere Personen
+    for person in persons:
+        if person.energy > 0:  # Nur lebende Personen
+            person.move(food_positions)
+            person.consume_energy()
+
+            # Überprüfe, ob Nahrung erreicht wurde
+            for food in food_positions:
+                if person.x <= food.x + CELL_SIZE and person.x >= food.x and person.y <= food.y + CELL_SIZE and person.y >= food.y:
+                    person.food += 1
+                    food_positions.remove(food)
+                    break
+
+            person.eat_food()
+
+        # Zeichne Person
+        pygame.draw.circle(screen, person.color, (person.x, person.y), CELL_SIZE // 2)
+
+    # Respawn Nahrung pro Bereich
+    for area_index in range(NUM_AREAS_X * NUM_AREAS_Y):
+        base_respawn = FOOD_RESPAWN_RATE
+        weather = area_weather[area_index]
+        modified_respawn = base_respawn * (1 + weather["respawn_modifier"])
+
+        # Bereichskoordinaten berechnen
+        area_x = (area_index % NUM_AREAS_X) * AREA_WIDTH
+        area_y = (area_index // NUM_AREAS_X) * AREA_HEIGHT + STATUS_BAR_HEIGHT
+
+        # Wahrscheinlichkeitsbasiertes Spawnen
+        if random.random() < modified_respawn:
+            x = random.randint(area_x, area_x + AREA_WIDTH - CELL_SIZE)
+            y = random.randint(area_y, area_y + AREA_HEIGHT - CELL_SIZE)
+            food_positions.append(Food(x, y))
+
+    # Aktualisiere Wetter
+    if current_round % ROUND_WEATHER_UPDATE == 0:
+        area_weather = [random.choice(weather_effects) for _ in range(NUM_AREAS_X * NUM_AREAS_Y)]
+
+    # Aktualisiere den Bildschirm
+    pygame.display.flip()
+    clock.tick(FPS)
+    current_round += 1
+
+pygame.quit()
